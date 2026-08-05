@@ -41,10 +41,11 @@ The label size and printer are configured via environmental variables. You can a
 | PRINTER_MODEL      | QL-500                | The printer model. One of the values accepted by brother_ql                                   |
 | PRINTER_PATH       | file:///dev/usb/lp1   | Where the printer is found on the system. For network printers use `tcp://printer.address`    |
 | BARCODE_FORMAT     | Datamatrix            | `Datamatrix` or `QRCode`                                                                      |
-| NAME_FONT          | NotoSerif-Regular.ttf | The file name of the font in the fonts directory                                              |
-| NAME_FONT_SIZE     | 48                    | The size of that font                                                                         |
+| NAME_FONT          | NotoSans-Regular.ttf  | The file name of the font in the fonts directory                                              |
+| NAME_FONT_SIZE     | 84                    | The MAXIMUM name font size — the name is auto-sized to the biggest size that fits the label   |
+| NAME_MIN_FONT_SIZE | 30                    | The minimum name font size; only this size may hyphenate or truncate the name                 |
 | NAME_MAX_LINES     | 4                     | The maximum number of lines to use for the name                                               |
-| DUE_DATE_FONT      | NotoSerif-Regular.ttf | The file name of the font in the fonts directory                                              |
+| DUE_DATE_FONT      | NotoSans-Regular.ttf  | The file name of the font in the fonts directory                                              |
 | DUE_DATE_FONT_SIZE | 30                    | The size of that font                                                                         |
 | ENDLESS_MARGIN     | 10                    | The top & bottom margin to add when using endless labels                                      |
 | BATCH_IDLE_SECONDS | 3                     | How long the print queue must stay idle before the batch is printed and cut                   |

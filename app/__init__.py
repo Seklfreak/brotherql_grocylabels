@@ -17,10 +17,13 @@ LABEL_SIZE = getenv("LABEL_SIZE", "62x29")
 PRINTER_MODEL = getenv("PRINTER_MODEL", "QL-500")
 PRINTER_PATH = getenv("PRINTER_PATH", "file:///dev/usb/lp1")
 BARCODE_FORMAT = getenv("BARCODE_FORMAT", "Datamatrix")
-NAME_FONT = getenv("NAME_FONT", "NotoSerif-Regular.ttf")
-NAME_FONT_SIZE = int(getenv("NAME_FONT_SIZE", "48"))
+NAME_FONT = getenv("NAME_FONT", "NotoSans-Regular.ttf")
+# the name is auto-sized: the biggest size in [MIN, MAX] whose wrapped text
+# fits the label wins; only the minimum size may truncate with an ellipsis
+NAME_FONT_SIZE = int(getenv("NAME_FONT_SIZE", "84"))
+NAME_MIN_FONT_SIZE = int(getenv("NAME_MIN_FONT_SIZE", "30"))
 NAME_MAX_LINES = int(getenv("NAME_MAX_LINES", "4"))
-DUE_DATE_FONT = getenv("NAME_FONT", "NotoSerif-Regular.ttf")
+DUE_DATE_FONT = getenv("DUE_DATE_FONT", "NotoSans-Regular.ttf")
 DUE_DATE_FONT_SIZE = int(getenv("DUE_DATE_FONT_SIZE", "30"))
 ENDLESS_MARGIN = int(getenv("ENDLESS_MARGIN", "10"))
 # how long the queue must stay idle before a batch is printed and cut
@@ -32,7 +35,7 @@ BACKEND_CLASS = backend_factory(selected_backend)['backend_class']
 label_spec = next(x for x in ALL_LABELS if x.identifier == LABEL_SIZE)
 
 thisDir = path.dirname(path.abspath(__file__))
-nameFont = ImageFont.truetype(path.join(thisDir, "..", "fonts", NAME_FONT), NAME_FONT_SIZE)
+nameFontPath = path.join(thisDir, "..", "fonts", NAME_FONT)
 ddFont = ImageFont.truetype(path.join(thisDir, "..", "fonts", DUE_DATE_FONT), DUE_DATE_FONT_SIZE)
 
 app = Flask(__name__)
@@ -62,7 +65,7 @@ def get_params():
 
 def renderLabel():
     (name, barcode, dueDate) = get_params()
-    return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFont, NAME_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), dueDate, ddFont)
+    return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFontPath, NAME_FONT_SIZE, NAME_MIN_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), dueDate, ddFont)
 
 # Labels queue up and a single worker prints them: a burst of webhooks
 # (Grocy sends one per unit) becomes one print job, cut once at the end.
