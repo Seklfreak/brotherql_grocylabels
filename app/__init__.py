@@ -1,5 +1,8 @@
 from io import BytesIO
 from os import path, getenv
+import logging
+import queue
+import threading
 from flask import Flask, Response, request
 from PIL import Image, ImageFont
 from dotenv import load_dotenv
@@ -17,9 +20,11 @@ BARCODE_FORMAT = getenv("BARCODE_FORMAT", "Datamatrix")
 NAME_FONT = getenv("NAME_FONT", "NotoSerif-Regular.ttf")
 NAME_FONT_SIZE = int(getenv("NAME_FONT_SIZE", "48"))
 NAME_MAX_LINES = int(getenv("NAME_MAX_LINES", "4"))
-DUE_DATE_FONT =  getenv("NAME_FONT", "NotoSerif-Regular.ttf")
+DUE_DATE_FONT = getenv("NAME_FONT", "NotoSerif-Regular.ttf")
 DUE_DATE_FONT_SIZE = int(getenv("DUE_DATE_FONT_SIZE", "30"))
 ENDLESS_MARGIN = int(getenv("ENDLESS_MARGIN", "10"))
+# how long the queue must stay idle before a batch is printed and cut
+BATCH_IDLE_SECONDS = float(getenv("BATCH_IDLE_SECONDS", "3"))
 
 selected_backend = guess_backend(PRINTER_PATH)
 BACKEND_CLASS = backend_factory(selected_backend)['backend_class']
@@ -31,6 +36,7 @@ nameFont = ImageFont.truetype(path.join(thisDir, "..", "fonts", NAME_FONT), NAME
 ddFont = ImageFont.truetype(path.join(thisDir, "..", "fonts", DUE_DATE_FONT), DUE_DATE_FONT_SIZE)
 
 app = Flask(__name__)
+log = logging.getLogger("gunicorn.error")
 
 @app.route("/")
 def home_route():
@@ -48,47 +54,63 @@ def get_params():
         name = source['chore']
     if 'recipe' in request.form:
         name = source['recipe']
-    
+
     barcode = source['grocycode'] if 'grocycode' in source else ''
     dueDate = source['due_date'] if 'due_date' in source else ''
 
     return (name, barcode, dueDate)
 
+def renderLabel():
+    (name, barcode, dueDate) = get_params()
+    return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFont, NAME_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), dueDate, ddFont)
+
+# Labels queue up and a single worker prints them: a burst of webhooks
+# (Grocy sends one per unit) becomes one print job, cut once at the end.
+labelQueue = queue.Queue()
+
+def printWorker():
+    while True:
+        batch = [labelQueue.get()]
+        while True:
+            try:
+                batch.append(labelQueue.get(timeout=BATCH_IDLE_SECONDS))
+            except queue.Empty:
+                break
+        try:
+            sendToPrinter(batch)
+            log.info("printed batch of %d label(s)", len(batch))
+        except Exception:
+            log.exception("printing batch of %d label(s) failed", len(batch))
+
+threading.Thread(target=printWorker, daemon=True).start()
+
 @app.route("/print", methods=["GET", "POST"])
 def print_route():
-    (name, barcode, dueDate) = get_params();
-
-    label = createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFont, NAME_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), dueDate, ddFont)
-
-    buf = BytesIO()
-    label.save(buf, format="PNG")
-    buf.seek(0)
-    sendToPrinter(label)
-
+    labelQueue.put(renderLabel())
     return Response("OK", 200)
 
 @app.route("/image")
 def test():
-    (name, barcode, dueDate) = get_params();
-
-    img = createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFont, NAME_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), dueDate, ddFont)
+    img = renderLabel()
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
 
     return Response(buf, 200, mimetype="image/png")
 
-def sendToPrinter(image : Image):
+def sendToPrinter(images):
     bql = BrotherQLRaster(PRINTER_MODEL)
 
     redLabel = label_spec.color == Color.BLACK_RED_WHITE
 
-    create_label(
-        bql,
-        image,
-        LABEL_SIZE,
-        red=redLabel
-    )
+    for i, image in enumerate(images):
+        create_label(
+            bql,
+            image,
+            LABEL_SIZE,
+            red=redLabel,
+            cut=(i == len(images) - 1)
+        )
 
     be = BACKEND_CLASS(PRINTER_PATH)
     be.write(bql.data)

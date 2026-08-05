@@ -1,3 +1,11 @@
+# 0.5.0
+
+- Fork of [sam159/brotherql_grocylabels](https://github.com/sam159/brotherql_grocylabels)
+- Batch printing: `/print` queues the label and returns immediately; labels
+  arriving within `BATCH_IDLE_SECONDS` (default 3) of each other print as one
+  job with a single cut after the last label
+- Published to ghcr.io as `ghcr.io/seklfreak/brotherql_grocylabels` (amd64)
+
 # 0.4.2
 
 - add support for `62red` labels (and other red labels)

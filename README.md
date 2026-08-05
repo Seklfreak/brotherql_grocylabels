@@ -4,6 +4,14 @@
 
 This project is intended to be a webhook target for [Grocy](https://github.com/grocy/grocy) to print labels to a brother QL label printer. 
 
+> **Fork note:** this is a fork of
+> [sam159/brotherql_grocylabels](https://github.com/sam159/brotherql_grocylabels)
+> that batches labels: `/print` queues the label and returns immediately, and
+> labels arriving within `BATCH_IDLE_SECONDS` of each other print as one job
+> with a single cut after the last label — a multi-label burst (e.g. Grocy's
+> label-per-unit purchases) comes out as one strip. Published to
+> `ghcr.io/seklfreak/brotherql_grocylabels` (amd64).
+
 Datamatrix or QR codes can be used with Datamatrix being the default. Datamatrix will fit better in smaller labels but I've found aren't as easily read by the Grocy 
 barcode reader or by the [Android App](https://github.com/patzly/grocy-android).
 
@@ -39,6 +47,7 @@ The label size and printer are configured via environmental variables. You can a
 | DUE_DATE_FONT      | NotoSerif-Regular.ttf | The file name of the font in the fonts directory                                              |
 | DUE_DATE_FONT_SIZE | 30                    | The size of that font                                                                         |
 | ENDLESS_MARGIN     | 10                    | The top & bottom margin to add when using endless labels                                      |
+| BATCH_IDLE_SECONDS | 3                     | How long the print queue must stay idle before the batch is printed and cut                   |
 
 Included fonts are `NotoSans-Regular.ttf` and `NotoSerif-Regular.ttf`
 
