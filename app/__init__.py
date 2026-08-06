@@ -1,8 +1,11 @@
 from io import BytesIO
 from os import path, getenv
+import json
 import logging
 import queue
+import re
 import threading
+from urllib.request import Request, urlopen
 from flask import Flask, Response, request
 from PIL import Image, ImageFont
 from dotenv import load_dotenv
@@ -31,6 +34,10 @@ BATCH_IDLE_SECONDS = float(getenv("BATCH_IDLE_SECONDS", "3"))
 # how long to wait between print attempts while the printer is unreachable
 # (e.g. auto-powered-off): labels are held and retried, never dropped
 RETRY_INTERVAL_SECONDS = float(getenv("RETRY_INTERVAL_SECONDS", "30"))
+# optional Grocy API access: stock entry labels then show the package size
+# (the entry note, e.g. "10 oz") or piece count next to the due date
+GROCY_URL = getenv("GROCY_URL", "").rstrip("/")
+GROCY_API_KEY = getenv("GROCY_API_KEY", "")
 
 selected_backend = guess_backend(PRINTER_PATH)
 BACKEND_CLASS = backend_factory(selected_backend)['backend_class']
@@ -66,17 +73,78 @@ def get_params():
 
     return (name, barcode, dueDate)
 
-def renderLabel():
-    (name, barcode, dueDate) = get_params()
-    return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFontPath, NAME_FONT_SIZE, NAME_MIN_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), dueDate, ddFont)
+def grocyGet(apiPath):
+    req = Request(GROCY_URL + "/api" + apiPath, headers={"GROCY-API-KEY": GROCY_API_KEY})
+    with urlopen(req, timeout=5) as resp:
+        return json.load(resp)
+
+GROCYCODE_ENTRY = re.compile(r"^grcy:p:(\d+):(.+)$")
+
+def fetchSizeText(barcode):
+    """Best-effort size/count for a stock entry label: the entry's note
+    (grocery-snap stores the package size there, e.g. "10 oz" / "20 ct"),
+    else amount + stock unit for multi-piece entries ("20 Pieces"). ""
+    when Grocy access is not configured, the code is not a stock entry
+    grocycode, or anything fails — the label then just has no size line."""
+    if not GROCY_URL or not GROCY_API_KEY:
+        return ""
+    m = GROCYCODE_ENTRY.match(barcode)
+    if not m:
+        return ""
+    try:
+        (productId, stockId) = m.groups()
+        entries = grocyGet("/stock/products/%s/entries" % productId)
+        entry = next((e for e in entries if e.get("stock_id") == stockId), None)
+        if entry is None:
+            return ""
+        note = (entry.get("note") or "").strip()
+        if note:
+            return note
+        amount = float(entry.get("amount") or 0)
+        if amount == 1:
+            return ""
+        product = grocyGet("/objects/products/%s" % productId)
+        unit = grocyGet("/objects/quantity_units/%s" % product["qu_id_stock"])
+        unitName = (unit.get("name_plural") if amount != 1 else "") or unit.get("name") or ""
+        return ("%g %s" % (amount, unitName)).strip()
+    except Exception:
+        log.exception("fetching label details for %s failed - printing without", barcode)
+        return ""
+
+def detailLine(size, dueDate):
+    # keep the bottom line to one modest length so it can't collide with the
+    # barcode; the size is the expendable part
+    if len(size) > 20:
+        size = size[:19] + "…"
+    if size and dueDate:
+        return "%s · %s" % (size, dueDate)
+    return size or dueDate
+
+def renderLabel(name, barcode, dueDate):
+    bottomLine = detailLine(fetchSizeText(barcode), dueDate)
+    return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFontPath, NAME_FONT_SIZE, NAME_MIN_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), bottomLine, ddFont)
 
 # Labels queue up and a single worker prints them: a burst of webhooks
 # (Grocy sends one per unit) becomes one print job, cut once at the end.
 # A batch that cannot be printed (printer unreachable, e.g. powered off) is
 # held and retried until the printer is back; labels arriving in the
 # meantime join the pending batch, so everything comes out as one strip.
+# Rendering happens in the worker too (not in the webhook request), which
+# keeps /print instant and lets the size lookup see the committed booking.
 labelQueue = queue.Queue()
 pendingCount = 0  # labels held by the worker, exposed on the home route
+
+def renderPending(item):
+    """Render a queued label once, caching the image on the item so retries
+    don't re-render. A label that cannot be rendered at all is dropped with a
+    log instead of wedging the queue forever."""
+    if item["image"] is None:
+        try:
+            item["image"] = renderLabel(*item["params"])
+        except Exception:
+            log.exception("rendering label %r failed - dropping it", item["params"])
+            item["image"] = False
+    return item["image"]
 
 def printWorker():
     global pendingCount
@@ -92,8 +160,10 @@ def printWorker():
                 break
         pendingCount = len(pending)
         try:
-            sendToPrinter(pending)
-            log.info("printed batch of %d label(s)", len(pending))
+            images = [img for item in pending if (img := renderPending(item))]
+            if images:
+                sendToPrinter(images)
+                log.info("printed batch of %d label(s)", len(images))
             pending = []
             pendingCount = 0
         except Exception:
@@ -110,12 +180,12 @@ threading.Thread(target=printWorker, daemon=True).start()
 
 @app.route("/print", methods=["GET", "POST"])
 def print_route():
-    labelQueue.put(renderLabel())
+    labelQueue.put({"params": get_params(), "image": None})
     return Response("OK", 200)
 
 @app.route("/image")
 def test():
-    img = renderLabel()
+    img = renderLabel(*get_params())
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)

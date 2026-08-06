@@ -12,7 +12,11 @@ This project is intended to be a webhook target for [Grocy](https://github.com/g
 > label-per-unit purchases) comes out as one strip. When the printer is
 > unreachable (e.g. auto-powered-off), labels are held and retried every
 > `RETRY_INTERVAL_SECONDS` instead of being dropped, then print as one strip
-> once the printer is back; the home route reports how many are pending. Published to
+> once the printer is back; the home route reports how many are pending.
+> With `GROCY_URL`/`GROCY_API_KEY` set, stock entry labels also show the
+> package size (the stock entry's note, e.g. "10 oz") or the piece count
+> ("20 Pieces") next to the due date, looked up from Grocy via the
+> grocycode. Published to
 > `ghcr.io/seklfreak/brotherql_grocylabels` (amd64).
 
 Datamatrix or QR codes can be used with Datamatrix being the default. Datamatrix will fit better in smaller labels but I've found aren't as easily read by the Grocy 
@@ -53,6 +57,8 @@ The label size and printer are configured via environmental variables. You can a
 | ENDLESS_MARGIN     | 10                    | The top & bottom margin to add when using endless labels                                      |
 | BATCH_IDLE_SECONDS | 3                     | How long the print queue must stay idle before the batch is printed and cut                   |
 | RETRY_INTERVAL_SECONDS | 30                | How long to wait between print attempts while the printer is unreachable (labels are held, not dropped) |
+| GROCY_URL          |                       | Optional: Grocy base URL — enables the size/count line on stock entry labels                  |
+| GROCY_API_KEY      |                       | Optional: Grocy API key for GROCY_URL                                                         |
 
 Included fonts are `NotoSans-Regular.ttf` and `NotoSerif-Regular.ttf`
 
