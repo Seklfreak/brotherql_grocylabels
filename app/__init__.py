@@ -28,6 +28,9 @@ DUE_DATE_FONT_SIZE = int(getenv("DUE_DATE_FONT_SIZE", "30"))
 ENDLESS_MARGIN = int(getenv("ENDLESS_MARGIN", "10"))
 # how long the queue must stay idle before a batch is printed and cut
 BATCH_IDLE_SECONDS = float(getenv("BATCH_IDLE_SECONDS", "3"))
+# how long to wait between print attempts while the printer is unreachable
+# (e.g. auto-powered-off): labels are held and retried, never dropped
+RETRY_INTERVAL_SECONDS = float(getenv("RETRY_INTERVAL_SECONDS", "30"))
 
 selected_backend = guess_backend(PRINTER_PATH)
 BACKEND_CLASS = backend_factory(selected_backend)['backend_class']
@@ -43,7 +46,7 @@ log = logging.getLogger("gunicorn.error")
 
 @app.route("/")
 def home_route():
-    return "Label %s, %s"%(label_spec.identifier, label_spec.name)
+    return "Label %s, %s, %d label(s) pending"%(label_spec.identifier, label_spec.name, pendingCount)
 
 def get_params():
     source = request.form if request.method == "POST" else request.args
@@ -69,21 +72,39 @@ def renderLabel():
 
 # Labels queue up and a single worker prints them: a burst of webhooks
 # (Grocy sends one per unit) becomes one print job, cut once at the end.
+# A batch that cannot be printed (printer unreachable, e.g. powered off) is
+# held and retried until the printer is back; labels arriving in the
+# meantime join the pending batch, so everything comes out as one strip.
 labelQueue = queue.Queue()
+pendingCount = 0  # labels held by the worker, exposed on the home route
 
 def printWorker():
+    global pendingCount
+    pending = []
     while True:
-        batch = [labelQueue.get()]
+        if not pending:
+            pending.append(labelQueue.get())
+        # drain the burst until the queue stays idle for a moment
         while True:
             try:
-                batch.append(labelQueue.get(timeout=BATCH_IDLE_SECONDS))
+                pending.append(labelQueue.get(timeout=BATCH_IDLE_SECONDS))
             except queue.Empty:
                 break
+        pendingCount = len(pending)
         try:
-            sendToPrinter(batch)
-            log.info("printed batch of %d label(s)", len(batch))
+            sendToPrinter(pending)
+            log.info("printed batch of %d label(s)", len(pending))
+            pending = []
+            pendingCount = 0
         except Exception:
-            log.exception("printing batch of %d label(s) failed", len(batch))
+            log.exception("printing batch of %d label(s) failed - holding them, retrying in %gs",
+                          len(pending), RETRY_INTERVAL_SECONDS)
+            # wait out the retry interval, but keep collecting new labels
+            try:
+                pending.append(labelQueue.get(timeout=RETRY_INTERVAL_SECONDS))
+                pendingCount = len(pending)
+            except queue.Empty:
+                pass
 
 threading.Thread(target=printWorker, daemon=True).start()
 
