@@ -16,7 +16,11 @@ This project is intended to be a webhook target for [Grocy](https://github.com/g
 > With `GROCY_URL`/`GROCY_API_KEY` set, stock entry labels also show the
 > package size (the stock entry's note, e.g. "10 oz") or the piece count
 > ("20 Pieces") next to the due date, looked up from Grocy via the
-> grocycode. Published to
+> grocycode. Every stock entry label also carries a short code (the tail of
+> its grocycode stock id, e.g. "2597A") so the otherwise-identical labels
+> printed for a label-per-unit purchase can be told apart by eye and matched
+> to what a scan of the code resolves to. The bottom line auto-shrinks to
+> stay clear of the barcode when it runs long. Published to
 > `ghcr.io/seklfreak/brotherql_grocylabels` (amd64).
 
 Datamatrix or QR codes can be used with Datamatrix being the default. Datamatrix will fit better in smaller labels but I've found aren't as easily read by the Grocy 

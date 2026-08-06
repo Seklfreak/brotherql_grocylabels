@@ -111,17 +111,26 @@ def fetchSizeText(barcode):
         log.exception("fetching label details for %s failed - printing without", barcode)
         return ""
 
-def detailLine(size, dueDate):
+def shortStockCode(barcode):
+    """A short, human-readable tag for one specific stock entry, taken from the
+    tail of its grocycode stock id. Two labels printed for the same product
+    otherwise differ only in their (unreadable) DataMatrix; this lets a person
+    tell them apart and matches what a scan of the code resolves to. "" for
+    non-entry codes (chores, batteries, recipes)."""
+    m = GROCYCODE_ENTRY.match(barcode)
+    if not m:
+        return ""
+    return m.group(2)[-5:].upper()
+
+def detailLine(size, dueDate, code):
     # keep the bottom line to one modest length so it can't collide with the
-    # barcode; the size is the expendable part
+    # barcode; the size is the expendable part, the entry code and due date stay
     if len(size) > 20:
         size = size[:19] + "…"
-    if size and dueDate:
-        return "%s · %s" % (size, dueDate)
-    return size or dueDate
+    return " · ".join(part for part in (size, dueDate, code) if part)
 
 def renderLabel(name, barcode, dueDate):
-    bottomLine = detailLine(fetchSizeText(barcode), dueDate)
+    bottomLine = detailLine(fetchSizeText(barcode), dueDate, shortStockCode(barcode))
     return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFontPath, NAME_FONT_SIZE, NAME_MIN_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), bottomLine, ddFont)
 
 # Labels queue up and a single worker prints them: a burst of webhooks

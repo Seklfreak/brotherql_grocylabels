@@ -48,9 +48,14 @@ def createLabelImage(labelSize : tuple, endlessMargin : int, text : str, fontPat
     textLeft = PADDING + barcode.size[0] + BARCODE_GAP
     textMaxWidth = width - textLeft - PADDING
 
-    # the due date reserves a line at the bottom of the text area
+    # the due date reserves a line at the bottom of the text area; it is
+    # right-aligned across the full width, so shrink its font (down to a
+    # readable floor) until it clears the barcode on the left
     ddHeight = 0
     if dueDate:
+        ddFloor = max(14, (dueDateFont.size * 2) // 3)
+        while dueDateFont.size > ddFloor and dueDateFont.getlength(dueDate) > textMaxWidth:
+            dueDateFont = dueDateFont.font_variant(size = dueDateFont.size - 2)
         (_, _, _, ddBottom) = dueDateFont.getbbox(dueDate)
         ddHeight = ddBottom + LINE_SPACING
 
