@@ -16,7 +16,12 @@ This project is intended to be a webhook target for [Grocy](https://github.com/g
 > With `GROCY_URL`/`GROCY_API_KEY` set, stock entry labels also show the
 > package size (the stock entry's note, e.g. "10 oz") or the piece count
 > ("20 Pieces") next to the due date, looked up from Grocy via the
-> grocycode. Every stock entry label also carries a short code (the tail of
+> grocycode. A package size on that line is dropped from the product name
+> above it — Grocy product names may carry their size as a "(453 g)" suffix
+> to tell size variants apart, and printing it twice spends the label's
+> biggest, auto-sized line on a repeat. A piece count is not the package
+> size, so it leaves the name alone, as does a descriptive "(organic)".
+> Every stock entry label also carries a short code (the tail of
 > its grocycode stock id, e.g. "2597A") so the otherwise-identical labels
 > printed for a label-per-unit purchase can be told apart by eye and matched
 > to what a scan of the code resolves to. The bottom line auto-shrinks to

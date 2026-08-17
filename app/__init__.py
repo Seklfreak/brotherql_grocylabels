@@ -81,35 +81,45 @@ def grocyGet(apiPath):
 GROCYCODE_ENTRY = re.compile(r"^grcy:p:(\d+):(.+)$")
 
 def fetchSizeText(barcode):
-    """Best-effort size/count for a stock entry label: the entry's note
-    (grocery-snap stores the package size there, e.g. "10 oz" / "20 ct"),
-    else amount + stock unit for multi-piece entries ("20 Pieces"). ""
-    when Grocy access is not configured, the code is not a stock entry
-    grocycode, or anything fails — the label then just has no size line."""
+    """Best-effort size/count for a stock entry label, as (text, isPackageSize):
+    the entry's note (grocery-snap stores the package size there, e.g. "10 oz"),
+    else amount + stock unit for multi-piece entries ("20 Pieces") — which
+    counts containers rather than naming a package size, hence the flag.
+    ("", False) when Grocy access is not configured, the code is not a stock
+    entry grocycode, or anything fails — the label then just has no size line."""
     if not GROCY_URL or not GROCY_API_KEY:
-        return ""
+        return ("", False)
     m = GROCYCODE_ENTRY.match(barcode)
     if not m:
-        return ""
+        return ("", False)
     try:
         (productId, stockId) = m.groups()
         entries = grocyGet("/stock/products/%s/entries" % productId)
         entry = next((e for e in entries if e.get("stock_id") == stockId), None)
         if entry is None:
-            return ""
+            return ("", False)
         note = (entry.get("note") or "").strip()
         if note:
-            return note
+            return (note, True)
         amount = float(entry.get("amount") or 0)
         if amount == 1:
-            return ""
+            return ("", False)
         product = grocyGet("/objects/products/%s" % productId)
         unit = grocyGet("/objects/quantity_units/%s" % product["qu_id_stock"])
         unitName = (unit.get("name_plural") if amount != 1 else "") or unit.get("name") or ""
-        return ("%g %s" % (amount, unitName)).strip()
+        return (("%g %s" % (amount, unitName)).strip(), False)
     except Exception:
         log.exception("fetching label details for %s failed - printing without", barcode)
-        return ""
+        return ("", False)
+
+# Grocy product names carry their package size as a "(453 g)" suffix so size
+# variants of one item are told apart (internal/productname in grocery-snap).
+# A parenthesis starting with a digit is a size; a descriptive one
+# ("Milk (organic)") is part of the name and stays.
+SIZE_SUFFIX = re.compile(r"\s*\([0-9][^()]*\)$")
+
+def stripSizeSuffix(name):
+    return SIZE_SUFFIX.sub("", name).strip()
 
 def shortStockCode(barcode):
     """A short, human-readable tag for one specific stock entry, taken from the
@@ -130,7 +140,13 @@ def detailLine(size, dueDate, code):
     return " · ".join(part for part in (size, dueDate, code) if part)
 
 def renderLabel(name, barcode, dueDate):
-    bottomLine = detailLine(fetchSizeText(barcode), dueDate, shortStockCode(barcode))
+    (size, isPackageSize) = fetchSizeText(barcode)
+    # The package size has its own line, so drop it from the name — printing it
+    # twice spends the label's biggest, auto-sized line on a repeat. The piece
+    # count is not the package size, so it leaves the name alone.
+    if isPackageSize:
+        name = stripSizeSuffix(name)
+    bottomLine = detailLine(size, dueDate, shortStockCode(barcode))
     return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFontPath, NAME_FONT_SIZE, NAME_MIN_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), bottomLine, ddFont)
 
 # Labels queue up and a single worker prints them: a burst of webhooks
