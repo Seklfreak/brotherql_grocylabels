@@ -1,3 +1,11 @@
+# 0.9.2
+
+- DataMatrix codes no longer print at half size on some labels: libdmtx
+  renders 5 dots per module, so scaling the raw symbol by the largest integer
+  factor stepped five modules at a time and a 24x24 symbol dropped from 2x to
+  1x. The symbol is now collapsed to one pixel per module before scaling, so
+  every code fills 96-100% of the label height instead of 53-99%.
+
 # 0.6.0
 
 - Nicer label layout: the name auto-sizes to the biggest font that fits

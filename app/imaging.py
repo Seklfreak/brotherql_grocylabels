@@ -2,9 +2,21 @@ from pylibdmtx.pylibdmtx import encode
 import qrcode
 from PIL import Image, ImageColor, ImageFont, ImageDraw
 
+# libdmtx renders every module as a solid 5x5 dot block. Handing that to the
+# label layout unchanged makes the integer scale-up step by five modules at a
+# time, so one extra codeword (a 22x22 symbol growing to 24x24) can halve the
+# printed barcode. Collapsing to one pixel per module first — exact, each
+# module being a solid block — makes the step a single module instead.
+DATAMATRIX_MODULE_PX = 5
+
 def createDatamatrix(text: str):
     encoded = encode(text.encode('utf8'), "Ascii", "ShapeAuto")
     barcode = Image.frombytes('RGB', (encoded.width, encoded.height), encoded.pixels)
+    if barcode.width % DATAMATRIX_MODULE_PX == 0 and barcode.height % DATAMATRIX_MODULE_PX == 0:
+        barcode = barcode.resize(
+            (barcode.width // DATAMATRIX_MODULE_PX, barcode.height // DATAMATRIX_MODULE_PX),
+            Image.Resampling.NEAREST
+        )
     return barcode
 
 def createQRCode(text: str):
@@ -35,7 +47,9 @@ def createLabelImage(labelSize : tuple, endlessMargin : int, text : str, fontPat
             (_, _, _, ddBottom) = dueDateFont.getbbox(dueDate)
             height += ddBottom
 
-    # scale the barcode to fill the label height (largest integer factor)
+    # scale the barcode to fill the label height (largest integer factor).
+    # The barcode arrives at one pixel per module, so this steps by a single
+    # module and always lands within a module of the available height.
     scale = max(1, (height - 2 * PADDING) // barcode.size[1])
     barcode = barcode.resize((barcode.size[0] * scale, barcode.size[1] * scale), Image.Resampling.NEAREST)
 
