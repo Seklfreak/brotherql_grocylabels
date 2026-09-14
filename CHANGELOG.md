@@ -1,3 +1,17 @@
+# 0.10.0
+
+- Stock entry labels now show what the container cost, next to its package
+  size and due date ("3.3 oz · $2.99 · 2028-11-26 · E4E43"). The price is the
+  stock entry's own — times its amount, so an entry booked by weight shows
+  what the package cost rather than the per-pound price — and an entry booked
+  without a price prints as before. Needs `GROCY_URL`/`GROCY_API_KEY`, which
+  the size line already required, and costs no extra Grocy call.
+- The currency comes from Grocy's `CURRENCY` setting (looked up once);
+  `CURRENCY_SYMBOL` overrides it, and a currency with no symbol here prints
+  its code after the amount ("2.99 CHF")
+- The size on the bottom line now truncates at 16 characters rather than 20,
+  to leave the longer line room to stay readable
+
 # 0.9.2
 
 - DataMatrix codes no longer print at half size on some labels: libdmtx

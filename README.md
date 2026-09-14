@@ -15,8 +15,12 @@ This project is intended to be a webhook target for [Grocy](https://github.com/g
 > once the printer is back; the home route reports how many are pending.
 > With `GROCY_URL`/`GROCY_API_KEY` set, stock entry labels also show the
 > package size (the stock entry's note, e.g. "10 oz") or the piece count
-> ("20 Pieces") next to the due date, looked up from Grocy via the
-> grocycode. A package size on that line is dropped from the product name
+> ("20 Pieces"), and what that container cost ("$2.99"), next to the due
+> date, all looked up from Grocy via the grocycode. The price is the stock
+> entry's own, so every label carries what was paid for the thing it is
+> stuck to, even when the same product was bought cheaper last week; an
+> entry booked without a price just has no price on its label. The currency
+> comes from Grocy's own setting unless `CURRENCY_SYMBOL` overrides it. A package size on that line is dropped from the product name
 > above it — Grocy product names may carry their size as a "(453 g)" suffix
 > to tell size variants apart, and printing it twice spends the label's
 > biggest, auto-sized line on a repeat. A piece count is not the package
@@ -66,8 +70,9 @@ The label size and printer are configured via environmental variables. You can a
 | ENDLESS_MARGIN     | 10                    | The top & bottom margin to add when using endless labels                                      |
 | BATCH_IDLE_SECONDS | 3                     | How long the print queue must stay idle before the batch is printed and cut                   |
 | RETRY_INTERVAL_SECONDS | 30                | How long to wait between print attempts while the printer is unreachable (labels are held, not dropped) |
-| GROCY_URL          |                       | Optional: Grocy base URL — enables the size/count line on stock entry labels                  |
+| GROCY_URL          |                       | Optional: Grocy base URL — enables the size/count and price on stock entry labels             |
 | GROCY_API_KEY      |                       | Optional: Grocy API key for GROCY_URL                                                         |
+| CURRENCY_SYMBOL    |                       | Optional: symbol to print prices with; empty uses Grocy's own currency setting                |
 
 Included fonts are `NotoSans-Regular.ttf` and `NotoSerif-Regular.ttf`
 

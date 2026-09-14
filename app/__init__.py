@@ -35,9 +35,12 @@ BATCH_IDLE_SECONDS = float(getenv("BATCH_IDLE_SECONDS", "3"))
 # (e.g. auto-powered-off): labels are held and retried, never dropped
 RETRY_INTERVAL_SECONDS = float(getenv("RETRY_INTERVAL_SECONDS", "30"))
 # optional Grocy API access: stock entry labels then show the package size
-# (the entry note, e.g. "10 oz") or piece count next to the due date
+# (the entry note, e.g. "10 oz") or piece count, and what the container cost,
+# next to the due date
 GROCY_URL = getenv("GROCY_URL", "").rstrip("/")
 GROCY_API_KEY = getenv("GROCY_API_KEY", "")
+# symbol to print prices with; empty asks Grocy for its own CURRENCY setting
+CURRENCY_SYMBOL = getenv("CURRENCY_SYMBOL", "")
 
 selected_backend = guess_backend(PRINTER_PATH)
 BACKEND_CLASS = backend_factory(selected_backend)['backend_class']
@@ -78,39 +81,87 @@ def grocyGet(apiPath):
     with urlopen(req, timeout=5) as resp:
         return json.load(resp)
 
+# currencies worth a symbol in front of the amount; anything else prints its
+# ISO code after it ("2.99 CHF"), which beats guessing the wrong symbol
+CURRENCY_SYMBOLS = {
+    "USD": "$", "CAD": "$", "AUD": "$", "NZD": "$", "EUR": "€", "GBP": "£",
+    "JPY": "¥", "CNY": "¥", "INR": "₹", "KRW": "₩", "BRL": "R$", "PLN": "zł",
+}
+
+currencyCode = None  # Grocy's CURRENCY, looked up once on the first priced label
+
+def fetchCurrencyCode():
+    """Grocy's configured currency, cached. Only a successful lookup is cached,
+    so a transient failure is retried on the next label rather than fixing every
+    price of a whole session to no currency at all."""
+    global currencyCode
+    if currencyCode is None:
+        try:
+            currencyCode = (grocyGet("/system/config").get("CURRENCY") or "").upper()
+        except Exception:
+            log.exception("fetching Grocy's currency failed - printing the price without one")
+            return ""
+    return currencyCode
+
+def formatPrice(value):
+    """An amount as it goes on the label, e.g. "$2.99"."""
+    amount = "%.2f" % value
+    symbol = CURRENCY_SYMBOL
+    if not symbol:
+        code = fetchCurrencyCode()
+        if code not in CURRENCY_SYMBOLS:
+            return ("%s %s" % (amount, code)).strip()
+        symbol = CURRENCY_SYMBOLS[code]
+    return symbol + amount
+
 GROCYCODE_ENTRY = re.compile(r"^grcy:p:(\d+):(.+)$")
 
-def fetchSizeText(barcode):
-    """Best-effort size/count for a stock entry label, as (text, isPackageSize):
-    the entry's note (grocery-snap stores the package size there, e.g. "10 oz"),
-    else amount + stock unit for multi-piece entries ("20 Pieces") — which
-    counts containers rather than naming a package size, hence the flag.
-    ("", False) when Grocy access is not configured, the code is not a stock
-    entry grocycode, or anything fails — the label then just has no size line."""
+def entryPrice(entry, amount):
+    """What the container this label is for cost. Grocy stores the entry price
+    per stock unit, so an entry booked by weight (1.55 lb at 1.99/lb) has to be
+    multiplied back out to get the price of the thing on the shelf. "" when the
+    purchase recorded no price."""
+    price = entry.get("price")
+    if price is None or amount <= 0:
+        return ""
+    total = float(price) * amount
+    if total <= 0:
+        return ""
+    return formatPrice(total)
+
+def fetchEntryDetails(barcode):
+    """Best-effort details for a stock entry label, as (size, isPackageSize,
+    price). The size is the entry's note (grocery-snap stores the package size
+    there, e.g. "10 oz"), else amount + stock unit for multi-piece entries
+    ("20 Pieces") — which counts containers rather than naming a package size,
+    hence the flag. ("", False, "") when Grocy access is not configured, the
+    code is not a stock entry grocycode, or anything fails — the label then
+    just carries no detail beyond its due date."""
     if not GROCY_URL or not GROCY_API_KEY:
-        return ("", False)
+        return ("", False, "")
     m = GROCYCODE_ENTRY.match(barcode)
     if not m:
-        return ("", False)
+        return ("", False, "")
     try:
         (productId, stockId) = m.groups()
         entries = grocyGet("/stock/products/%s/entries" % productId)
         entry = next((e for e in entries if e.get("stock_id") == stockId), None)
         if entry is None:
-            return ("", False)
+            return ("", False, "")
+        amount = float(entry.get("amount") or 0)
+        price = entryPrice(entry, amount)
         note = (entry.get("note") or "").strip()
         if note:
-            return (note, True)
-        amount = float(entry.get("amount") or 0)
+            return (note, True, price)
         if amount == 1:
-            return ("", False)
+            return ("", False, price)
         product = grocyGet("/objects/products/%s" % productId)
         unit = grocyGet("/objects/quantity_units/%s" % product["qu_id_stock"])
         unitName = (unit.get("name_plural") if amount != 1 else "") or unit.get("name") or ""
-        return (("%g %s" % (amount, unitName)).strip(), False)
+        return (("%g %s" % (amount, unitName)).strip(), False, price)
     except Exception:
         log.exception("fetching label details for %s failed - printing without", barcode)
-        return ("", False)
+        return ("", False, "")
 
 # Grocy product names carry their package size as a "(453 g)" suffix so size
 # variants of one item are told apart (internal/productname in grocery-snap).
@@ -132,21 +183,23 @@ def shortStockCode(barcode):
         return ""
     return m.group(2)[-5:].upper()
 
-def detailLine(size, dueDate, code):
-    # keep the bottom line to one modest length so it can't collide with the
-    # barcode; the size is the expendable part, the entry code and due date stay
-    if len(size) > 20:
-        size = size[:19] + "…"
-    return " · ".join(part for part in (size, dueDate, code) if part)
+def detailLine(size, price, dueDate, code):
+    # the whole line shrinks to fit the label, so keep it short enough to stay
+    # readable: the size is the expendable part (package sizes are short, and a
+    # truncated one still identifies the container), while the price, entry
+    # code and due date stay
+    if len(size) > 16:
+        size = size[:15] + "…"
+    return " · ".join(part for part in (size, price, dueDate, code) if part)
 
 def renderLabel(name, barcode, dueDate):
-    (size, isPackageSize) = fetchSizeText(barcode)
+    (size, isPackageSize, price) = fetchEntryDetails(barcode)
     # The package size has its own line, so drop it from the name — printing it
     # twice spends the label's biggest, auto-sized line on a repeat. The piece
     # count is not the package size, so it leaves the name alone.
     if isPackageSize:
         name = stripSizeSuffix(name)
-    bottomLine = detailLine(size, dueDate, shortStockCode(barcode))
+    bottomLine = detailLine(size, price, dueDate, shortStockCode(barcode))
     return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFontPath, NAME_FONT_SIZE, NAME_MIN_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), bottomLine, ddFont)
 
 # Labels queue up and a single worker prints them: a burst of webhooks
