@@ -29,7 +29,12 @@ This project is intended to be a webhook target for [Grocy](https://github.com/g
 > its grocycode stock id, e.g. "2597A") so the otherwise-identical labels
 > printed for a label-per-unit purchase can be told apart by eye and matched
 > to what a scan of the code resolves to. The bottom line auto-shrinks to
-> stay clear of the barcode when it runs long. Published to
+> stay clear of the barcode when it runs long. A black badge under the
+> barcode says how the product is used up, from its Grocy settings:
+> "single use" when "Disable opened tracking" is set (a cup or can that goes
+> in one go), "opened 14d" when it has a due-days-after-opening, nothing when
+> neither is set. The barcode shrinks to make room for it only on labels that
+> carry one. Published to
 > `ghcr.io/seklfreak/brotherql_grocylabels` (amd64).
 
 Datamatrix or QR codes can be used with Datamatrix being the default. Datamatrix will fit better in smaller labels but I've found aren't as easily read by the Grocy 
@@ -67,6 +72,7 @@ The label size and printer are configured via environmental variables. You can a
 | NAME_MAX_LINES     | 4                     | The maximum number of lines to use for the name                                               |
 | DUE_DATE_FONT      | NotoSans-Regular.ttf  | The file name of the font in the fonts directory                                              |
 | DUE_DATE_FONT_SIZE | 30                    | The size of that font                                                                         |
+| BADGE_FONT_SIZE    | 28                    | The maximum size of the "single use" / "opened 14d" badge text (same font as the due date)    |
 | ENDLESS_MARGIN     | 10                    | The top & bottom margin to add when using endless labels                                      |
 | BATCH_IDLE_SECONDS | 3                     | How long the print queue must stay idle before the batch is printed and cut                   |
 | RETRY_INTERVAL_SECONDS | 30                | How long to wait between print attempts while the printer is unreachable (labels are held, not dropped) |

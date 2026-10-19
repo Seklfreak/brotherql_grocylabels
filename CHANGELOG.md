@@ -1,3 +1,14 @@
+# 0.11.0
+
+- Stock entry labels now say how the product is used up, in a black badge
+  under the barcode: "single use" when Grocy's "Disable opened tracking" is
+  set, "opened 14d" when the product has a due-days-after-opening, nothing
+  when neither is set (the label then looks as before). The barcode shrinks
+  by the badge's height to make room, only on labels that carry one. Needs
+  `GROCY_URL`/`GROCY_API_KEY`; costs one product lookup per label for
+  entries that carry a package-size note (the others already made it).
+- New `BADGE_FONT_SIZE` (default 28) for the badge text
+
 # 0.10.0
 
 - Stock entry labels now show what the container cost, next to its package

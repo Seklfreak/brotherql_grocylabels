@@ -28,6 +28,8 @@ NAME_MIN_FONT_SIZE = int(getenv("NAME_MIN_FONT_SIZE", "30"))
 NAME_MAX_LINES = int(getenv("NAME_MAX_LINES", "4"))
 DUE_DATE_FONT = getenv("DUE_DATE_FONT", "NotoSans-Regular.ttf")
 DUE_DATE_FONT_SIZE = int(getenv("DUE_DATE_FONT_SIZE", "30"))
+# the "single use" / "opened 14d" badge under the barcode (same font as the due date)
+BADGE_FONT_SIZE = int(getenv("BADGE_FONT_SIZE", "28"))
 ENDLESS_MARGIN = int(getenv("ENDLESS_MARGIN", "10"))
 # how long the queue must stay idle before a batch is printed and cut
 BATCH_IDLE_SECONDS = float(getenv("BATCH_IDLE_SECONDS", "3"))
@@ -50,6 +52,7 @@ label_spec = next(x for x in ALL_LABELS if x.identifier == LABEL_SIZE)
 thisDir = path.dirname(path.abspath(__file__))
 nameFontPath = path.join(thisDir, "..", "fonts", NAME_FONT)
 ddFont = ImageFont.truetype(path.join(thisDir, "..", "fonts", DUE_DATE_FONT), DUE_DATE_FONT_SIZE)
+badgeFont = ImageFont.truetype(path.join(thisDir, "..", "fonts", DUE_DATE_FONT), BADGE_FONT_SIZE)
 
 app = Flask(__name__)
 log = logging.getLogger("gunicorn.error")
@@ -129,39 +132,55 @@ def entryPrice(entry, amount):
         return ""
     return formatPrice(total)
 
+def openBadge(product):
+    """How the product is used up, for the badge under the barcode: "single
+    use" when Grocy's "Disable opened tracking" is set (a cup or can that goes
+    in one go), "opened 14d" when opening gives it a shelf life of its own, ""
+    when neither is set. grocery-snap fills both in for the products it
+    creates."""
+    if int(float(product.get("disable_open") or 0)):
+        return "single use"
+    days = int(float(product.get("default_best_before_days_after_open") or 0))
+    if days > 0:
+        return "opened %dd" % days
+    return ""
+
 def fetchEntryDetails(barcode):
     """Best-effort details for a stock entry label, as (size, isPackageSize,
-    price). The size is the entry's note (grocery-snap stores the package size
-    there, e.g. "10 oz"), else amount + stock unit for multi-piece entries
-    ("20 Pieces") — which counts containers rather than naming a package size,
-    hence the flag. ("", False, "") when Grocy access is not configured, the
-    code is not a stock entry grocycode, or anything fails — the label then
-    just carries no detail beyond its due date."""
+    price, badge). The size is the entry's note (grocery-snap stores the
+    package size there, e.g. "10 oz"), else amount + stock unit for
+    multi-piece entries ("20 Pieces") — which counts containers rather than
+    naming a package size, hence the flag. The badge says how the product is
+    used up (see openBadge). ("", False, "", "") when Grocy access is not
+    configured, the code is not a stock entry grocycode, or anything fails —
+    the label then just carries no detail beyond its due date."""
+    none = ("", False, "", "")
     if not GROCY_URL or not GROCY_API_KEY:
-        return ("", False, "")
+        return none
     m = GROCYCODE_ENTRY.match(barcode)
     if not m:
-        return ("", False, "")
+        return none
     try:
         (productId, stockId) = m.groups()
         entries = grocyGet("/stock/products/%s/entries" % productId)
         entry = next((e for e in entries if e.get("stock_id") == stockId), None)
         if entry is None:
-            return ("", False, "")
+            return none
+        product = grocyGet("/objects/products/%s" % productId)
+        badge = openBadge(product)
         amount = float(entry.get("amount") or 0)
         price = entryPrice(entry, amount)
         note = (entry.get("note") or "").strip()
         if note:
-            return (note, True, price)
+            return (note, True, price, badge)
         if amount == 1:
-            return ("", False, price)
-        product = grocyGet("/objects/products/%s" % productId)
+            return ("", False, price, badge)
         unit = grocyGet("/objects/quantity_units/%s" % product["qu_id_stock"])
         unitName = (unit.get("name_plural") if amount != 1 else "") or unit.get("name") or ""
-        return (("%g %s" % (amount, unitName)).strip(), False, price)
+        return (("%g %s" % (amount, unitName)).strip(), False, price, badge)
     except Exception:
         log.exception("fetching label details for %s failed - printing without", barcode)
-        return ("", False, "")
+        return none
 
 # Grocy product names carry their package size as a "(453 g)" suffix so size
 # variants of one item are told apart (internal/productname in grocery-snap).
@@ -193,14 +212,14 @@ def detailLine(size, price, dueDate, code):
     return " · ".join(part for part in (size, price, dueDate, code) if part)
 
 def renderLabel(name, barcode, dueDate):
-    (size, isPackageSize, price) = fetchEntryDetails(barcode)
+    (size, isPackageSize, price, badge) = fetchEntryDetails(barcode)
     # The package size has its own line, so drop it from the name — printing it
     # twice spends the label's biggest, auto-sized line on a repeat. The piece
     # count is not the package size, so it leaves the name alone.
     if isPackageSize:
         name = stripSizeSuffix(name)
     bottomLine = detailLine(size, price, dueDate, shortStockCode(barcode))
-    return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFontPath, NAME_FONT_SIZE, NAME_MIN_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), bottomLine, ddFont)
+    return createLabelImage(label_spec.dots_printable, ENDLESS_MARGIN, name, nameFontPath, NAME_FONT_SIZE, NAME_MIN_FONT_SIZE, NAME_MAX_LINES, createBarcode(barcode, BARCODE_FORMAT), bottomLine, ddFont, badge, badgeFont)
 
 # Labels queue up and a single worker prints them: a burst of webhooks
 # (Grocy sends one per unit) becomes one print job, cut once at the end.

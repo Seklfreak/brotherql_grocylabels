@@ -36,8 +36,11 @@ PADDING = 14
 # gap between the barcode and the text area
 BARCODE_GAP = 20
 LINE_SPACING = 4
+# the badge bar under the barcode: its height, and the gap above it
+BADGE_HEIGHT = 40
+BADGE_GAP = 8
 
-def createLabelImage(labelSize : tuple, endlessMargin : int, text : str, fontPath : str, maxFontSize : int, minFontSize : int, textMaxLines : int, barcode : Image, dueDate : str, dueDateFont : ImageFont):
+def createLabelImage(labelSize : tuple, endlessMargin : int, text : str, fontPath : str, maxFontSize : int, minFontSize : int, textMaxLines : int, barcode : Image, dueDate : str, dueDateFont : ImageFont, badge : str = "", badgeFont : ImageFont = None):
     (width, height) = labelSize
 
     # for endless labels with a height of zero: size for the max font
@@ -50,14 +53,25 @@ def createLabelImage(labelSize : tuple, endlessMargin : int, text : str, fontPat
     # scale the barcode to fill the label height (largest integer factor).
     # The barcode arrives at one pixel per module, so this steps by a single
     # module and always lands within a module of the available height.
-    scale = max(1, (height - 2 * PADDING) // barcode.size[1])
+    # A badge takes a bar under the barcode, so the barcode gives up that
+    # height; the bottom detail line is too full to hold it as well.
+    badge = badge if badgeFont else ""
+    barcodeHeight = height - 2 * PADDING
+    if badge:
+        barcodeHeight -= BADGE_HEIGHT + BADGE_GAP
+    scale = max(1, barcodeHeight // barcode.size[1])
     barcode = barcode.resize((barcode.size[0] * scale, barcode.size[1] * scale), Image.Resampling.NEAREST)
 
     label = Image.new("RGB", (width, height), ImageColor.getrgb("#FFF"))
     draw = ImageDraw.Draw(label)
 
-    # barcode on the left, vertically centered
-    label.paste(barcode, (PADDING, (height - barcode.size[1]) // 2))
+    if badge:
+        # barcode top-left, badge bar the barcode's width along the bottom edge
+        label.paste(barcode, (PADDING, PADDING))
+        drawBadge(draw, badge, badgeFont, PADDING, height - PADDING - BADGE_HEIGHT, barcode.size[0])
+    else:
+        # barcode on the left, vertically centered
+        label.paste(barcode, (PADDING, (height - barcode.size[1]) // 2))
 
     textLeft = PADDING + barcode.size[0] + BARCODE_GAP
     textMaxWidth = width - textLeft - PADDING
@@ -105,6 +119,19 @@ def createLabelImage(labelSize : tuple, endlessMargin : int, text : str, fontPat
         )
 
     return label
+
+def drawBadge(draw : ImageDraw, text : str, font : ImageFont, left : int, top : int, width : int):
+    """White text centered on a black rounded bar, shrunk until it fits."""
+    while font.size > 16 and font.getlength(text) > width - 12:
+        font = font.font_variant(size = font.size - 1)
+    draw.rounded_rectangle((left, top, left + width, top + BADGE_HEIGHT), radius = 8, fill = ImageColor.getrgb("#000"))
+    (l, t, r, b) = font.getbbox(text)
+    draw.text(
+        (left + (width - (r - l)) // 2 - l, top + (BADGE_HEIGHT - (b - t)) // 2 - t),
+        text,
+        fill = ImageColor.getrgb("#FFF"),
+        font = font
+    )
 
 def wrapText(text : str, font : ImageFont, maxWidth : int, maxLines : int):
     parts = text.split(" ")
