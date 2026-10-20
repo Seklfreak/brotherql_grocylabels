@@ -1,3 +1,9 @@
+# 0.12.0
+
+- The badge under the barcode now always prints on stock entry labels:
+  products with neither "Disable opened tracking" nor a due-days-after-opening
+  say "multi use" instead of carrying no badge
+
 # 0.11.0
 
 - Stock entry labels now say how the product is used up, in a black badge

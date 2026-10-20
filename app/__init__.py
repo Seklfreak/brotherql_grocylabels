@@ -28,7 +28,7 @@ NAME_MIN_FONT_SIZE = int(getenv("NAME_MIN_FONT_SIZE", "30"))
 NAME_MAX_LINES = int(getenv("NAME_MAX_LINES", "4"))
 DUE_DATE_FONT = getenv("DUE_DATE_FONT", "NotoSans-Regular.ttf")
 DUE_DATE_FONT_SIZE = int(getenv("DUE_DATE_FONT_SIZE", "30"))
-# the "single use" / "opened 14d" badge under the barcode (same font as the due date)
+# the "single use" / "opened 14d" / "multi use" badge under the barcode (same font as the due date)
 BADGE_FONT_SIZE = int(getenv("BADGE_FONT_SIZE", "28"))
 ENDLESS_MARGIN = int(getenv("ENDLESS_MARGIN", "10"))
 # how long the queue must stay idle before a batch is printed and cut
@@ -135,15 +135,16 @@ def entryPrice(entry, amount):
 def openBadge(product):
     """How the product is used up, for the badge under the barcode: "single
     use" when Grocy's "Disable opened tracking" is set (a cup or can that goes
-    in one go), "opened 14d" when opening gives it a shelf life of its own, ""
-    when neither is set. grocery-snap fills both in for the products it
-    creates."""
+    in one go), "opened 14d" when opening gives it a shelf life of its own,
+    "multi use" when neither is set (opened and finished as two separate
+    scans, with no shelf life of its own once open). grocery-snap fills both
+    settings in for the products it creates."""
     if int(float(product.get("disable_open") or 0)):
         return "single use"
     days = int(float(product.get("default_best_before_days_after_open") or 0))
     if days > 0:
         return "opened %dd" % days
-    return ""
+    return "multi use"
 
 def fetchEntryDetails(barcode):
     """Best-effort details for a stock entry label, as (size, isPackageSize,
